@@ -1,0 +1,70 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.admin == true;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId || isAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['name', 'email', 'createdAt', 'updatedAt']);
+      allow update: if isAuthenticated() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['name', 'email', 'createdAt', 'updatedAt']);
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow create: if isAuthenticated()
+        && request.resource.data.keys().hasOnly([
+          'items',
+          'totalPrice',
+          'status',
+          'paymentMethod',
+          'shippingAddress',
+          'customerEmail',
+          'customerName',
+          'createdAt',
+          'createdBy'
+        ])
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.customerEmail == request.auth.token.email
+        && request.resource.data.status == 'pending'
+        && request.resource.data.totalPrice is number
+        && request.resource.data.items is list
+        && request.resource.data.shippingAddress is map;
+      allow read: if (isAuthenticated() && (resource.data.customerEmail == request.auth.token.email || resource.data.createdBy == request.auth.uid)) || isAdmin();
+      allow update: if isAuthenticated()
+        && (resource.data.customerEmail == request.auth.token.email || resource.data.createdBy == request.auth.uid)
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status']);
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'items',
+          'totalPrice',
+          'status',
+          'paymentMethod',
+          'shippingAddress',
+          'customerEmail',
+          'customerName',
+          'createdAt',
+          'createdBy'
+        ])
+        && request.resource.data.status in ['pending', 'approved', 'rejected', 'shipped', 'delivered', 'cancelled']
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status']);
+      allow delete: if false;
+    }
+
+  }
+}
